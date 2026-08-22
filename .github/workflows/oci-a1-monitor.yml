@@ -1,0 +1,70 @@
+name: OCI A1 Capacity Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check-capacity:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Install OCI CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install oci-cli
+
+      - name: Configure OCI
+        env:
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=${OCI_USER_OCID}
+          fingerprint=${OCI_FINGERPRINT}
+          tenancy=${OCI_TENANCY_OCID}
+          region=eu-madrid-3
+          key_file=/home/runner/.oci/oci_api_key.pem
+          EOF
+
+          printf '%s\n' "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
+
+          chmod 600 ~/.oci/config
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Check OCI capacity
+        id: capacity
+        env:
+          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          STATUS=$(oci compute compute-capacity-report create \
+            --availability-domain 'Smeo:EU-MADRID-3-AD-1' \
+            --compartment-id "$OCI_COMPARTMENT_OCID" \
+            --shape-availabilities '[{"instanceShape":"VM.Standard.A1.Flex","instanceShapeConfig":{"ocpus":2,"memoryInGBs":12}}]' \
+            --query 'data.shape-availabilities[0].availability-status' \
+            --raw-output)
+
+          echo "OCI capacity status: $STATUS"
+
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram
+        if: steps.capacity.outputs.status == 'AVAILABLE'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MESSAGE="🚀 OCI A1 DISPONIBLE%0A%0ARegión: eu-madrid-3%0AAD: EU-MADRID-3-AD-1%0AShape: VM.Standard.A1.Flex%0AConfiguración: 2 OCPU / 12 GB%0A%0A⚡ ¡Intenta crear la instancia ahora!"
+
+          curl -sS \
+            -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MESSAGE}"
