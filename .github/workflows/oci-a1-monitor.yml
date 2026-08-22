@@ -48,7 +48,7 @@ jobs:
             --availability-domain 'Smeo:EU-MADRID-3-AD-1' \
             --compartment-id "$OCI_COMPARTMENT_OCID" \
             --shape-availabilities '[{"instanceShape":"VM.Standard.A1.Flex","instanceShapeConfig":{"ocpus":2,"memoryInGBs":12}}]' \
-            --query 'data.shape-availabilities[0].availability-status' \
+            --query 'data."shape-availabilities"[0]."availability-status"' \
             --raw-output)
 
           echo "OCI capacity status: $STATUS"
