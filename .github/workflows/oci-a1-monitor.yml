@@ -68,3 +68,57 @@ jobs:
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${MESSAGE}"
+
+      - name: Create A1 instance
+        if: steps.capacity.outputs.status == 'AVAILABLE'
+        id: create-instance
+        env:
+          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          OCI_SUBNET_OCID: ${{ secrets.OCI_SUBNET_OCID }}
+          OCI_BOOT_VOLUME_OCID: ${{ secrets.OCI_BOOT_VOLUME_OCID }}
+        run: |
+          set -e
+
+          echo "🚀 A1 capacity available. Attempting instance creation..."
+
+          EXISTING=$(oci compute instance list \
+            --compartment-id "$OCI_COMPARTMENT_OCID" \
+            --display-name "bluewayenglish-instance" \
+            --lifecycle-state RUNNING \
+            --query 'data[0].id' \
+            --raw-output)
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "Instance already exists: $EXISTING"
+            exit 0
+          fi
+
+          INSTANCE_ID=$(oci compute instance launch \
+            --compartment-id "$OCI_COMPARTMENT_OCID" \
+            --availability-domain "Smeo:EU-MADRID-3-AD-1" \
+            --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus":2,"memoryInGBs":12}' \
+            --subnet-id "$OCI_SUBNET_OCID" \
+            --source-boot-volume-id "$OCI_BOOT_VOLUME_OCID" \
+            --display-name "bluewayenglish-instance" \
+            --query 'data.id' \
+            --raw-output)
+
+          echo "Instance created: $INSTANCE_ID"
+
+          echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram success
+        if: steps.create-instance.outputs.instance_id != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INSTANCE_ID: ${{ steps.create-instance.outputs.instance_id }}
+        run: |
+          MESSAGE="🚀 A1 CREADA%0A%0ARegión: eu-madrid-3%0AAD: EU-MADRID-3-AD-1%0AShape: VM.Standard.A1.Flex%0AConfiguración: 2 OCPU / 12 GB%0A%0AInstance: ${INSTANCE_ID}"
+
+          curl -sS \
+            -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MESSAGE}"
